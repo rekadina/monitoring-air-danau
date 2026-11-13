@@ -1,35 +1,44 @@
-import { createClient } from '@supabase/supabase-js'
-import { NextRequest, NextResponse } from 'next/server'
+import { queryApi, bucket } from "@/app/lib/influxClient";
+import { NextResponse } from "next/server";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-)
+const RANGE_MAP: Record<string, string> = {
+  "5s": "-5s",
+  "5m": "-5m",
+  "30m": "-30m",
+  "1h": "-1h",
+  "1d": "-1d",
+  "1mo": "-30d",
+  "1y": "-365d",
+};
 
-export async function POST(req: NextRequest) {
-  const body = await req.json()
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const range = searchParams.get("range") || "1h";
+  const fluxRange = RANGE_MAP[range] || "-1h";
 
-  const { error } = await supabase.from('sensor_data').insert([{
-    dissolved_oxygen: body.dissolved_oxygen,
-    ph: body.ph,
-    conductivity: body.conductivity,
-    turbidity: body.turbidity,
-    temperature: body.temperature,
-    latitude: body.latitude,
-    longitude: body.longitude,
-  }])
+  const fluxQuery = `
+    from(bucket: "${bucket}")
+      |> range(start: ${fluxRange})
+      |> filter(fn: (r) => r._measurement == "sensor_readings")
+      |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+      |> sort(columns: ["_time"])
+  `;
 
-  if (error) return NextResponse.json({ error }, { status: 500 })
-  return NextResponse.json({ success: true }, { status: 200 })
-}
-
-export async function GET() {
-  const { data, error } = await supabase
-    .from('sensor_data')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(100)
-
-  if (error) return NextResponse.json({ error }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const rows: any[] = [];
+    for await (const { values, tableMeta } of queryApi.iterateRows(fluxQuery)) {
+      const obj = tableMeta.toObject(values);
+      rows.push({
+        timestamp: new Date(obj._time).getTime(),
+        dissolvedOxygen: obj.dissolved_oxygen,
+        ph: obj.ph,
+        conductivity: obj.conductivity,
+        turbidity: obj.turbidity,
+        temperature: obj.temperature,
+      });
+    }
+    return NextResponse.json(rows);
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 }
