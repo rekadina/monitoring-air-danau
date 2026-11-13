@@ -8,6 +8,7 @@ interface MapLocationProps {
   latitude?: number;
   longitude?: number;
   deviceName?: string;
+  fromGps?: boolean;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
 }
@@ -21,6 +22,7 @@ export function MapLocation({
   latitude = DEFAULT_LAT,
   longitude = DEFAULT_LNG,
   deviceName = 'WQ-Monitor-001',
+  fromGps = false,
 }: MapLocationProps) {
   const { t } = useLanguage();
   const mapEl = useRef<HTMLDivElement>(null);
@@ -138,6 +140,9 @@ export function MapLocation({
           </p>
         </div>
       </div>
+      <p className={`mt-2 text-xs ${fromGps ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+        {fromGps ? t('gpsLive') : t('gpsDefault')}
+      </p>
     </div>
   );
 }

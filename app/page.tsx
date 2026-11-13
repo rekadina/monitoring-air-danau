@@ -49,6 +49,10 @@ interface HistoricalPoint {
   conductivity: number;
   turbidity: number;
   temperature: number;
+  rssi?: number;
+  snr?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 // Interval polling (fetch ulang) per rentang waktu — makin kecil rentangnya, makin sering di-fetch
@@ -95,10 +99,12 @@ function Dashboard() {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement>(null);
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("1h");
-  const [gpsLocation] = useState({
+  // Lokasi: bawaan sampai GPS buoy mengirim koordinat, lalu memakai koordinat GPS terakhir
+  const [gpsLocation, setGpsLocation] = useState({
     latitude: 2.388634,
     longitude: 99.143356,
     deviceName: "WQ-Monitor-001",
+    fromGps: false,
   });
 
   // Ambil data dari API route (yang query ke InfluxDB pakai Flux)
@@ -112,6 +118,16 @@ function Dashboard() {
 
       const data: HistoricalPoint[] = await res.json();
       setHistoricalData(data);
+
+      // Koordinat GPS terakhir yang valid (bila ada)
+      for (let i = data.length - 1; i >= 0; i--) {
+        const { latitude, longitude } = data[i];
+        if (typeof latitude === "number" && typeof longitude === "number" &&
+            Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          setGpsLocation((prev) => ({ ...prev, latitude, longitude, fromGps: true }));
+          break;
+        }
+      }
 
       // Ambil nilai TERAKHIR YANG TIDAK null untuk tiap sensor,
       // supaya baris terakhir yang kosong sebagian tidak membuat kartu jadi 0.0
@@ -535,6 +551,7 @@ function Dashboard() {
             latitude={gpsLocation.latitude}
             longitude={gpsLocation.longitude}
             deviceName={gpsLocation.deviceName}
+            fromGps={gpsLocation.fromGps}
             isExpanded={isMapExpanded}
             onToggleExpand={() => setIsMapExpanded(!isMapExpanded)}
           />
