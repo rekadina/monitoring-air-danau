@@ -35,6 +35,10 @@ export async function GET(request: Request) {
         conductivity: obj.conductivity,
         turbidity: obj.turbidity,
         temperature: obj.temperature,
+        rssi: obj.rssi,
+        snr: obj.snr,
+        latitude: obj.latitude,
+        longitude: obj.longitude,
       });
     }
     return NextResponse.json(rows);
