@@ -286,7 +286,7 @@ interface SensorDef {
 const SENSORS: SensorDef[] = [
   { key: "temperature", nameKey: "pTemp", unit: "°C", decimals: 1, status: getTemperatureStatus },
   { key: "ph", nameKey: "pPh", unit: "", decimals: 2, status: getPhStatus },
-  { key: "conductivity", nameKey: "pTds", unit: "mg/L", decimals: 1, status: getTdsStatus },
+  { key: "conductivity", nameKey: "pTds", unit: "ppm", decimals: 1, status: getTdsStatus },
   { key: "turbidity", nameKey: "pTurb", unit: "NTU", decimals: 1, status: getTurbidityStatus },
   { key: "dissolvedOxygen", nameKey: "pDo", unit: "mg/L", decimals: 2, status: getDoStatus },
 ];

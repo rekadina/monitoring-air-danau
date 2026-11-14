@@ -48,7 +48,7 @@ export function getDoStatus(value: number): SensorStatus {
   return { level: "good", label: "Very Good", labelId: "Sangat Baik" };
 }
 
-// ===== TDS mg/L (Tabel 2.3) =====
+// ===== TDS ppm (Tabel 2.3 memakai mg/L; untuk air tawar 1 ppm = 1 mg/L, jadi batasnya sama) =====
 export function getTdsStatus(value: number): SensorStatus {
   if (value < 1000) return { level: "good", label: "Safe - Meets Standard", labelId: "Aman - Memenuhi Baku Mutu" };
   return { level: "critical", label: "Unsafe - Polluted", labelId: "Tidak Aman - Tercemar" };

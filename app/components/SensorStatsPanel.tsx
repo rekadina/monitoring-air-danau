@@ -35,15 +35,13 @@ interface SensorConfig {
 const SENSORS: SensorConfig[] = [
   { key: "dissolvedOxygen", labelKey: "chartDo", unit: "mg/L", icon: Droplet },
   { key: "ph", labelKey: "chartPh", unit: "", icon: Gauge },
-  { key: "conductivity", labelKey: "chartTds", unit: "mg/L", icon: Zap },
+  { key: "conductivity", labelKey: "chartTds", unit: "ppm", icon: Zap },
   { key: "turbidity", labelKey: "chartTurb", unit: "NTU", icon: Eye },
   { key: "temperature", labelKey: "chartTemp", unit: "°C", icon: Thermometer },
 ];
 
 export const TIME_RANGES = [
-  { key: "5s", labelKey: "range5s" },
   { key: "5m", labelKey: "range5m" },
-  { key: "30m", labelKey: "range30m" },
   { key: "1h", labelKey: "range1h" },
   { key: "1d", labelKey: "range1d" },
   { key: "1mo", labelKey: "range1mo" },
@@ -59,10 +57,7 @@ export function formatAxisTime(
 ): string {
   const date = new Date(ts);
   switch (range) {
-    case "5s":
-      return date.toLocaleTimeString(locale, { minute: "2-digit", second: "2-digit" });
     case "5m":
-    case "30m":
     case "1h":
       return date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
     case "1d":

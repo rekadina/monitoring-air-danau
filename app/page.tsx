@@ -14,6 +14,7 @@ import {
   FileText,
   FileSpreadsheet,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import { SensorCard } from "./components/SensorCard";
 import { MapLocation } from "./components/MapLocation";
@@ -49,22 +50,21 @@ interface HistoricalPoint {
   conductivity: number;
   turbidity: number;
   temperature: number;
-  rssi?: number;
-  snr?: number;
-  latitude?: number;
-  longitude?: number;
 }
 
 // Interval polling (fetch ulang) per rentang waktu — makin kecil rentangnya, makin sering di-fetch
 const POLL_INTERVAL_MS: Record<TimeRangeKey, number> = {
-  "5s": 2000,        // fetch tiap 2 detik
-  "5m": 5000,        // fetch tiap 5 detik
-  "30m": 15000,      // fetch tiap 15 detik
-  "1h": 30000,       // fetch tiap 30 detik
-  "1d": 60000,       // fetch tiap 1 menit
+  "5m": 30000,       // fetch tiap 30 detik
+  "1h": 60000,       // fetch tiap 1 menit
+  "1d": 2 * 60000,   // fetch tiap 2 menit
   "1mo": 5 * 60000,  // fetch tiap 5 menit
   "1y": 15 * 60000,  // fetch tiap 15 menit
 };
+
+// Data dianggap basi kalau tidak ada paket baru selama ini (3x interval kirim 2 menit)
+const STALE_AFTER_MS = 6 * 60 * 1000;
+// Nilai kartu real-time diperbarui tiap ini
+const LATEST_POLL_MS = 30000;
 
 // Tulis angka dua digit
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -97,14 +97,14 @@ function Dashboard() {
   const [historicalData, setHistoricalData] = useState<HistoricalPoint[]>([]);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [nowTick, setNowTick] = useState(0);
+  const [latestLoaded, setLatestLoaded] = useState(false);
   const downloadRef = useRef<HTMLDivElement>(null);
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("1h");
-  // Lokasi: bawaan sampai GPS buoy mengirim koordinat, lalu memakai koordinat GPS terakhir
-  const [gpsLocation, setGpsLocation] = useState({
+  const [gpsLocation] = useState({
     latitude: 2.388634,
     longitude: 99.143356,
     deviceName: "WQ-Monitor-001",
-    fromGps: false,
   });
 
   // Ambil data dari API route (yang query ke InfluxDB pakai Flux)
@@ -118,54 +118,43 @@ function Dashboard() {
 
       const data: HistoricalPoint[] = await res.json();
       setHistoricalData(data);
-
-      // Koordinat GPS terakhir yang valid (bila ada)
-      for (let i = data.length - 1; i >= 0; i--) {
-        const { latitude, longitude } = data[i];
-        if (typeof latitude === "number" && typeof longitude === "number" &&
-            Number.isFinite(latitude) && Number.isFinite(longitude)) {
-          setGpsLocation((prev) => ({ ...prev, latitude, longitude, fromGps: true }));
-          break;
-        }
-      }
-
-      // Ambil nilai TERAKHIR YANG TIDAK null untuk tiap sensor,
-      // supaya baris terakhir yang kosong sebagian tidak membuat kartu jadi 0.0
-      const FIELDS = [
-        "dissolvedOxygen",
-        "ph",
-        "conductivity",
-        "turbidity",
-        "temperature",
-      ] as const;
-      const found: Partial<Record<(typeof FIELDS)[number], number>> = {};
-      let latestTs = 0;
-
-      for (let i = data.length - 1; i >= 0; i--) {
-        for (const f of FIELDS) {
-          const v = data[i][f];
-          if (found[f] === undefined && typeof v === "number" && Number.isFinite(v)) {
-            found[f] = v;
-            latestTs = Math.max(latestTs, data[i].timestamp);
-          }
-        }
-        if (FIELDS.every((f) => found[f] !== undefined)) break;
-      }
-
-      if (latestTs > 0) {
-        setCurrentData((prev) => ({
-          dissolvedOxygen: found.dissolvedOxygen ?? prev.dissolvedOxygen,
-          ph: found.ph ?? prev.ph,
-          conductivity: found.conductivity ?? prev.conductivity,
-          turbidity: found.turbidity ?? prev.turbidity,
-          temperature: found.temperature ?? prev.temperature,
-          timestamp: new Date(latestTs),
-        }));
-      }
     } catch (error) {
       console.error("Error fetching sensor data:", error);
     }
   }, []);
+
+  // Nilai terbaru untuk kartu real-time: tidak tergantung rentang waktu grafik
+  const fetchLatest = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sensor?range=latest");
+      if (res.ok) {
+        const d = await res.json();
+        const n = (v: unknown, fallback: number) =>
+          typeof v === "number" && Number.isFinite(v) ? v : fallback;
+        if (d && typeof d.timestamp === "number" && d.timestamp > 0) {
+          setCurrentData((prev) => ({
+            dissolvedOxygen: n(d.dissolvedOxygen, prev.dissolvedOxygen),
+            ph: n(d.ph, prev.ph),
+            conductivity: n(d.conductivity, prev.conductivity),
+            turbidity: n(d.turbidity, prev.turbidity),
+            temperature: n(d.temperature, prev.temperature),
+            timestamp: new Date(d.timestamp),
+          }));
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching latest data:", error);
+    } finally {
+      setLatestLoaded(true);
+      setNowTick(Date.now());
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLatest();
+    const id = setInterval(fetchLatest, LATEST_POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchLatest]);
 
   // Set mounted setelah render client - cegah hydration mismatch
   useEffect(() => {
@@ -210,7 +199,7 @@ function Dashboard() {
     "Timestamp",
     "Dissolved Oxygen (mg/L)",
     "pH",
-    "Total Dissolved Solids (mg/L)",
+    "Total Dissolved Solids (ppm)",
     "Turbidity (NTU)",
     "Temperature (°C)",
   ];
@@ -327,6 +316,18 @@ function Dashboard() {
     }
   };
 
+  // Status data basi: belum ada paket baru dari buoy
+  const lastTs = currentData.timestamp.getTime();
+  const hasData = lastTs > 0;
+  const isStale = latestLoaded && nowTick > 0 && (!hasData || nowTick - lastTs > STALE_AFTER_MS);
+  const agoText = (ms: number) => {
+    const m = Math.max(0, Math.floor(ms / 60000));
+    if (m < 60) return `${m} ${t("unitMin")} ${t("agoWord")}`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return `${h} ${t("unitHour")} ${t("agoWord")}`;
+    return `${Math.floor(h / 24)} ${t("unitDay")} ${t("agoWord")}`;
+  };
+
   // Ringkasan kualitas air = status terburuk dari kelima sensor
   const allStatuses = [
     getDoStatus(currentData.dissolvedOxygen),
@@ -366,9 +367,15 @@ function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <div className="flex items-center gap-1.5 bg-white/20 dark:bg-gray-800/40 backdrop-blur-sm px-3 py-1.5 rounded-lg">
-              <Activity className="w-4 h-4 animate-pulse" />
-              <span className="font-medium text-xs sm:text-sm">{t("realtimeActive")}</span>
+            <div
+              className={`flex items-center gap-1.5 backdrop-blur-sm px-3 py-1.5 rounded-lg ${
+                isStale ? "bg-amber-500/40" : "bg-white/20 dark:bg-gray-800/40"
+              }`}
+            >
+              <Activity className={`w-4 h-4 ${isStale ? "" : "animate-pulse"}`} />
+              <span className="font-medium text-xs sm:text-sm">
+                {isStale ? t("rtOffline") : t("realtimeActive")}
+              </span>
             </div>
           </div>
         </div>
@@ -388,6 +395,19 @@ function Dashboard() {
                 : t("loading")}
             </span>
           </div>
+
+          {isStale && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs sm:text-sm text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>
+                {hasData
+                  ? `${t("staleTitle")}. ${t("staleSince")}: ${new Date(lastTs).toLocaleString(
+                      lang === "id" ? "id-ID" : "en-US"
+                    )} (${agoText(nowTick - lastTs)})`
+                  : t("noDataYet")}
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
             <SensorCard
@@ -413,7 +433,7 @@ function Dashboard() {
             <SensorCard
               title={t("condTitle")}
               value={currentData.conductivity}
-              unit="mg/L"
+              unit="ppm"
               icon={Zap}
               status={getTdsStatus(currentData.conductivity).level}
               statusLabel={lbl(getTdsStatus(currentData.conductivity))}
@@ -551,7 +571,6 @@ function Dashboard() {
             latitude={gpsLocation.latitude}
             longitude={gpsLocation.longitude}
             deviceName={gpsLocation.deviceName}
-            fromGps={gpsLocation.fromGps}
             isExpanded={isMapExpanded}
             onToggleExpand={() => setIsMapExpanded(!isMapExpanded)}
           />
